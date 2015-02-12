@@ -85,7 +85,7 @@
 #ifdef HAVE_LIBGCRYPT
 #include <wsutil/wsgcrypt.h>
 #endif
-
+#include <stdio.h>
 /* Take a pointer that may be null and return a pointer that's not null
    by turning null pointers into pointers to the above null string,
    and, if the argument pointer wasn't null, make sure we handle
@@ -1353,17 +1353,34 @@ dissect_snmp_engineid(proto_tree *tree, tvbuff_t *tvb, int offset, int len)
     return offset;
 }
 
+static void hexstr_to_key (guint8* data, char* hex, guint size) {
+	guint32 count = 0;
+	char *pos = hex;
+
+    for(count = 0; count < size; count++) {
+        sscanf(pos, "%2hhx", &data[count]);
+        pos += 2 * sizeof(char);
+    }
+    return;
+}
 
 static void set_ue_keys(snmp_ue_assoc_t* n ) {
+	guint8 *buf=NULL;
 	guint key_size = n->user.authModel->key_size;
-
-	n->user.authKey.data = (guint8 *)se_alloc(key_size);
-	n->user.authKey.len = key_size;
-	n->user.authModel->pass2key(n->user.authPassword.data,
+	if (n->user.authKey.len) {
+		buf  = (guint8 *)se_alloc(key_size);
+		hexstr_to_key(buf, n->user.authKey.data , n->user.authKey.len);
+		n->user.authKey.data=buf;
+		n->user.authKey.len = key_size;
+	} else {
+		n->user.authKey.data = (guint8 *)se_alloc(key_size);
+		n->user.authKey.len = key_size;
+		n->user.authModel->pass2key(n->user.authPassword.data,
 				    n->user.authPassword.len,
 				    n->engine.data,
 				    n->engine.len,
 				    n->user.authKey.data);
+	}
 
 	if (n->priv_proto == PRIV_AES128 || n->priv_proto == PRIV_AES192 || n->priv_proto == PRIV_AES256) {
 		guint need_key_len =
@@ -1401,13 +1418,20 @@ static void set_ue_keys(snmp_ue_assoc_t* n ) {
 		}
 
 	} else {
-		n->user.privKey.data = (guint8 *)se_alloc(key_size);
-		n->user.privKey.len = key_size;
-		n->user.authModel->pass2key(n->user.privPassword.data,
-					    n->user.privPassword.len,
-					    n->engine.data,
-					    n->engine.len,
-					    n->user.privKey.data);
+		if (n->user.privKey.len) {
+			buf  = (guint8 *)se_alloc(key_size);
+			hexstr_to_key(buf, n->user.privKey.data , n->user.privKey.len);
+			n->user.privKey.data=buf;
+			n->user.privKey.len = key_size;
+		} else {
+			n->user.privKey.data = (guint8 *)se_alloc(key_size);
+			n->user.privKey.len = key_size;
+			n->user.authModel->pass2key(n->user.privPassword.data,
+							n->user.privPassword.len,
+							n->engine.data,
+							n->engine.len,
+							n->user.privKey.data);
+		}
 	}
 }
 
@@ -3294,6 +3318,7 @@ snmp_usm_password_to_key_md5(const guint8 *password, guint passwordlen,
 	guint8		key1[16];
 	md5_init(&MD);   /* initialize MD5 */
 
+
 	/**********************************************/
 	/* Use while loop until we've done 1 Megabyte */
 	/**********************************************/
@@ -3492,8 +3517,17 @@ snmp_users_update_cb(void* p _U_, const char** err)
 
 
 UAT_LSTRING_CB_DEF(snmp_users,userName,snmp_ue_assoc_t,user.userName.data,user.userName.len)
+
+// UAT_FLD_LSTRING(snmp_users,authPassword,"Password","The password used for authenticating packets for this entry")
 UAT_LSTRING_CB_DEF(snmp_users,authPassword,snmp_ue_assoc_t,user.authPassword.data,user.authPassword.len)
+
+//UAT_FLD_LSTRING(snmp_users,authPassword,"Authkey","The key used for authenticating packets for this entry") ^^
+UAT_LSTRING_CB_DEF(snmp_users,authKey,snmp_ue_assoc_t,user.authKey.data,user.authKey.len)
+
+
 UAT_LSTRING_CB_DEF(snmp_users,privPassword,snmp_ue_assoc_t,user.privPassword.data,user.privPassword.len)
+UAT_LSTRING_CB_DEF(snmp_users,privKey,snmp_ue_assoc_t,user.privKey.data,user.privKey.len)
+
 UAT_BUFFER_CB_DEF(snmp_users,engine_id,snmp_ue_assoc_t,engine.data,engine.len)
 UAT_VS_DEF(snmp_users,auth_model,snmp_ue_assoc_t,guint,0,"MD5")
 UAT_VS_DEF(snmp_users,priv_proto,snmp_ue_assoc_t,guint,0,"DES")
@@ -3988,8 +4022,10 @@ void proto_register_snmp(void) {
 	  UAT_FLD_LSTRING(snmp_users,userName,"Username","The username"),
 	  UAT_FLD_VS(snmp_users,auth_model,"Authentication model",auth_types,"Algorithm to be used for authentication."),
 	  UAT_FLD_LSTRING(snmp_users,authPassword,"Password","The password used for authenticating packets for this entry"),
+	  UAT_FLD_LSTRING(snmp_users,authKey,"Authkey","The key used for authenticating packets for this entry"),
 	  UAT_FLD_VS(snmp_users,priv_proto,"Privacy protocol",priv_types,"Algorithm to be used for privacy."),
 	  UAT_FLD_LSTRING(snmp_users,privPassword,"Privacy password","The password used for encrypting packets for this entry"),
+	  UAT_FLD_LSTRING(snmp_users,privKey,"Privacy key","The key used for encrypting packets for this entry"),
 	  UAT_END_FIELDS
   };
 
